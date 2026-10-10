@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { PwaInstallPrompt } from "./PwaInstallPrompt";
 
 interface Props {
   onOpenNewItem: () => void;
@@ -91,6 +92,7 @@ export const Navbar: React.FC<Props> = ({ onOpenNewItem, onOpenSettings, onToggl
 
       {/* Action Controls & User Status */}
       <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <PwaInstallPrompt />
         {isAuthenticated ? (
           <>
             {!isLocked && (
