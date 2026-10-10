@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { generatePassword, evaluatePasswordStrength } from "@/lib/crypto";
-import { Copy, RefreshCw, X, Shield, Sparkles, SlidersHorizontal } from "lucide-react";
+import { Copy, RefreshCw, X, Sparkles } from "lucide-react";
 import { useVault } from "@/context/VaultContext";
 
 interface Props {
@@ -22,7 +22,7 @@ export const PasswordGeneratorModal: React.FC<Props> = ({ isOpen, onClose, onSel
   const [passphrase, setPassphrase] = useState(false);
   const [wordCount, setWordCount] = useState(4);
 
-  const generate = () => {
+  const generate = useCallback(() => {
     const pwd = generatePassword({
       length,
       uppercase,
@@ -33,11 +33,14 @@ export const PasswordGeneratorModal: React.FC<Props> = ({ isOpen, onClose, onSel
       wordCount,
     });
     setPassword(pwd);
-  };
+  }, [length, uppercase, lowercase, numbers, symbols, passphrase, wordCount]);
 
   useEffect(() => {
-    if (isOpen) generate();
-  }, [isOpen, length, uppercase, lowercase, numbers, symbols, passphrase, wordCount]);
+    if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      generate();
+    }
+  }, [isOpen, generate]);
 
   if (!isOpen) return null;
 

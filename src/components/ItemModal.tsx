@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useVault, DecryptedVaultItem } from "@/context/VaultContext";
 import {
   X,
@@ -51,7 +51,12 @@ export const ItemModal: React.FC<Props> = ({ isOpen, item, onClose, defaultCateg
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
+  const [prevItem, setPrevItem] = useState<DecryptedVaultItem | null>(null);
+  const [prevIsOpen, setPrevIsOpen] = useState(false);
+
+  if (item !== prevItem || isOpen !== prevIsOpen) {
+    setPrevItem(item);
+    setPrevIsOpen(isOpen);
     if (item) {
       setCategory(item.category || "password");
       setTitle(item.title || "");
@@ -66,7 +71,7 @@ export const ItemModal: React.FC<Props> = ({ isOpen, item, onClose, defaultCateg
       setApiKey(item.apiKey || "");
       setIsFavorite(item.isFavorite || false);
     } else {
-      setCategory((defaultCategory as any) || "password");
+      setCategory((defaultCategory as "password" | "note" | "card" | "apikey" | "passkey") || "password");
       setTitle("");
       setUsername("");
       setPassword("");
@@ -79,7 +84,7 @@ export const ItemModal: React.FC<Props> = ({ isOpen, item, onClose, defaultCateg
       setApiKey("");
       setIsFavorite(false);
     }
-  }, [item, defaultCategory, isOpen]);
+  }
 
   if (!isOpen) return null;
 
@@ -185,7 +190,7 @@ export const ItemModal: React.FC<Props> = ({ isOpen, item, onClose, defaultCateg
                     <button
                       key={cat.id}
                       type="button"
-                      onClick={() => setCategory(cat.id as any)}
+                      onClick={() => setCategory(cat.id as "password" | "note" | "card" | "apikey" | "passkey")}
                       className={`flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-2xl border text-xs font-semibold gap-1.5 transition ${
                         active
                           ? "bg-indigo-600/15 text-indigo-400 border-indigo-500/40 shadow-lg shadow-indigo-500/10"

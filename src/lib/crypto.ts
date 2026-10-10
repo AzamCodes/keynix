@@ -234,9 +234,9 @@ function unpadPayload(paddedBytes: Uint8Array): string {
 }
 
 export async function encryptVaultPayload(
-  payload: Record<string, any>,
+  payload: Record<string, unknown>,
   vaultKeyInput: Uint8Array | CryptoKey,
-  aadContext: Record<string, any>
+  aadContext: Record<string, unknown>
 ): Promise<{ ciphertext: string; iv: string; tag: string; aadMeta: string }> {
   const vaultKey =
     vaultKeyInput instanceof Uint8Array
@@ -279,8 +279,8 @@ export async function encryptVaultPayload(
 export async function decryptVaultPayload(
   encData: { ciphertext: string; iv: string; tag: string; aadMeta: string },
   vaultKeyInput: Uint8Array | CryptoKey,
-  expectedAadContext?: Record<string, any>
-): Promise<Record<string, any>> {
+  expectedAadContext?: Record<string, unknown>
+): Promise<Record<string, unknown>> {
   const vaultKey =
     vaultKeyInput instanceof Uint8Array
       ? await importVaultKey(vaultKeyInput)
@@ -385,7 +385,7 @@ export interface EncryptedBackupFormat {
 }
 
 export async function encryptVaultBackup(
-  items: Record<string, any>[],
+  items: Record<string, unknown>[],
   backupPassword: string
 ): Promise<string> {
   if (!backupPassword || backupPassword.length < 12) {
@@ -453,7 +453,7 @@ export async function encryptVaultBackup(
 export async function decryptVaultBackup(
   backupJsonStr: string,
   backupPassword: string
-): Promise<Record<string, any>[]> {
+): Promise<Record<string, unknown>[]> {
   if (!backupPassword) {
     throw new Error("Backup password is required");
   }
@@ -519,12 +519,13 @@ export async function decryptVaultBackup(
     }
 
     return payload.items;
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
     if (
-      err.message === "Invalid or corrupted backup JSON file format" ||
-      err.message === "Unsupported or corrupted backup file format" ||
-      err.message === "Corrupted backup payload: items missing" ||
-      err.message?.includes("PKCS7")
+      errorMessage === "Invalid or corrupted backup JSON file format" ||
+      errorMessage === "Unsupported or corrupted backup file format" ||
+      errorMessage === "Corrupted backup payload: items missing" ||
+      errorMessage.includes("PKCS7")
     ) {
       throw err;
     }

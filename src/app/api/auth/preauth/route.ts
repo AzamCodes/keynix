@@ -80,7 +80,7 @@ export async function POST(req: Request) {
       masterSalt: dummySalt,
       kdfParams: { algorithm: "argon2id", m: 65536, t: 3, p: 4 },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Preauth Error:", error);
     return NextResponse.json(
       { error: "Internal server error during pre-authentication" },

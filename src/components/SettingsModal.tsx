@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useVault } from "@/context/VaultContext";
+import { useVault, DecryptedVaultItem } from "@/context/VaultContext";
 import {
   X,
   KeyRound,
@@ -93,7 +93,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
     try {
       setIsExporting(true);
-      const encryptedJson = await encryptVaultBackup(items, exportPassword);
+      const encryptedJson = await encryptVaultBackup(items as unknown as Record<string, unknown>[], exportPassword);
       const blob = new Blob([encryptedJson], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -105,8 +105,9 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
       setExportPassword("");
       setConfirmExportPassword("");
       copyToClipboard("", "Encrypted Vault Backup exported successfully!");
-    } catch (err: any) {
-      setExportError(err.message || "Failed to encrypt backup");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to encrypt backup";
+      setExportError(message);
     } finally {
       setIsExporting(false);
     }
@@ -135,7 +136,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
       const decryptedItems = await decryptVaultBackup(text, importPassword);
 
       let count = 0;
-      for (const item of decryptedItems) {
+      for (const item of decryptedItems as Partial<DecryptedVaultItem>[]) {
         await addItem({
           category: item.category || "password",
           title: item.title || "Imported Item",
@@ -158,8 +159,9 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
       setImportIsError(false);
       setImportPassword("");
       setSelectedImportFile(null);
-    } catch (err: any) {
-      setImportStatus(err.message || "Failed to decrypt backup");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to decrypt backup";
+      setImportStatus(message);
       setImportIsError(true);
     } finally {
       setIsImporting(false);
@@ -210,7 +212,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
+                  onClick={() => setActiveTab(tab.id as "security" | "backup" | "account")}
                   className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition ${
                     active
                       ? "bg-zinc-800 text-white shadow"

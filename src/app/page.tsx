@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import {
-  ShieldCheck,
   Lock,
   KeyRound,
   Cpu,
@@ -11,13 +10,7 @@ import {
   Sparkles,
   ArrowRight,
   CheckCircle2,
-  Terminal,
-  Zap,
-  Shield,
-  EyeOff,
   Database,
-  Globe,
-  Star,
 } from "lucide-react";
 import { generatePassword, evaluatePasswordStrength } from "@/lib/crypto";
 

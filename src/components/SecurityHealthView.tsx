@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useVault, DecryptedVaultItem } from "@/context/VaultContext";
-import { ShieldAlert, ShieldCheck, AlertTriangle, KeyRound, ArrowUpRight, CheckCircle2, Lock } from "lucide-react";
+import { ShieldAlert, ShieldCheck, AlertTriangle, KeyRound, ArrowUpRight, CheckCircle2 } from "lucide-react";
 import { evaluatePasswordStrength } from "@/lib/crypto";
 
 interface Props {

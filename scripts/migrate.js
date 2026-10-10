@@ -3,6 +3,7 @@
  * Ensures migrations only execute in appropriate environments without targeting Production DB from Preview builds.
  */
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { execSync } = require("child_process");
 
 function runMigration() {

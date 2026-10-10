@@ -113,7 +113,7 @@ export async function POST(req: Request) {
           : null,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Register Error:", error);
     return NextResponse.json(
       { error: "Internal server error during registration" },

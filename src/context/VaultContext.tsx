@@ -190,6 +190,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkSession();
   }, [checkSession]);
 
@@ -207,7 +208,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       for (const item of rawItems) {
         if (isLocked || lockVersionRef.current !== currentLockVersion) return;
         try {
-          const payload = await decryptVaultPayload(
+          const payload = (await decryptVaultPayload(
             {
               ciphertext: item.ciphertext,
               iv: item.iv,
@@ -215,7 +216,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               aadMeta: item.aadMeta,
             },
             vaultKey
-          );
+          )) as Partial<DecryptedVaultItem>;
 
           decryptedList.push({
             id: item.id,
@@ -250,6 +251,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     if (vaultKey && !isLocked) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchAndDecryptVault();
     }
   }, [vaultKey, isLocked, fetchAndDecryptVault]);
@@ -285,7 +287,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         body: JSON.stringify({ email, authKey }),
       });
 
-      let data: any = {};
+      let data: Record<string, unknown> = {};
       try {
         data = await loginRes.json();
       } catch {
@@ -294,10 +296,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (!loginRes.ok) {
         wipeBytes(masterKey);
-        return { success: false, error: data.error || "Invalid email or password" };
+        return { success: false, error: (data.error as string) || "Invalid email or password" };
       }
 
-      const userData: UserSessionData = data.user;
+      const userData: UserSessionData = data.user as UserSessionData;
       setUser(userData);
       setIsAuthenticated(true);
 
@@ -309,9 +311,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setVaultKey(unwrappedVaultKey);
       setIsLocked(false);
       return { success: true };
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Login error:", err);
-      return { success: false, error: err.message || "An unexpected error occurred" };
+      const message = err instanceof Error ? err.message : "An unexpected error occurred";
+      return { success: false, error: message };
     } finally {
       setIsLoading(false);
     }
@@ -345,7 +348,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }),
       });
 
-      let data: any = {};
+      let data: Record<string, unknown> = {};
       try {
         data = await regRes.json();
       } catch {
@@ -353,18 +356,19 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
 
       if (!regRes.ok) {
-        return { success: false, error: data.error || "Registration failed" };
+        return { success: false, error: (data.error as string) || "Registration failed" };
       }
 
-      setUser(data.user);
+      setUser(data.user as UserSessionData);
       setIsAuthenticated(true);
       setVaultKey(newVaultKey);
       setIsLocked(false);
 
       return { success: true, recoveryPhrase };
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Register error:", err);
-      return { success: false, error: err.message || "Registration failed" };
+      const message = err instanceof Error ? err.message : "Registration failed";
+      return { success: false, error: message };
     } finally {
       setIsLoading(false);
     }
@@ -381,7 +385,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setVaultKey(unwrappedVaultKey);
       setIsLocked(false);
       return { success: true };
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Unlock error:", err);
       return { success: false, error: "Incorrect Master Password" };
     } finally {
@@ -439,7 +443,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setIsLocked(false);
       await checkSession();
       return { success: true };
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Account recovery error:", err);
       return { success: false, error: "Invalid recovery phrase or failed to unlock" };
     } finally {
@@ -558,8 +562,9 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const d = await res.json();
         return { success: false, error: d.error || "Failed to update password" };
       }
-    } catch (e: any) {
-      return { success: false, error: e.message || "Failed to update password" };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to update password";
+      return { success: false, error: message };
     }
   };
 

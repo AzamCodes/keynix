@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   generateSalt,
   deriveMasterKey,
@@ -7,8 +7,6 @@ import {
   generateVaultKey,
   encryptVaultKey,
   decryptVaultKey,
-  encryptVaultPayload,
-  decryptVaultPayload,
   wipeBytes,
   encryptVaultBackup,
   decryptVaultBackup,
@@ -40,7 +38,7 @@ describe("KEYNIX REMEDIATION AUDIT TEST SUITE", () => {
     it("should block vault operations when vault is locked", async () => {
       let isLocked = true;
       let vaultKey: Uint8Array | null = null;
-      let items: any[] = [];
+      let items: Record<string, unknown>[] = [];
 
       const lockVault = () => {
         if (vaultKey) wipeBytes(vaultKey);
@@ -83,7 +81,7 @@ describe("KEYNIX REMEDIATION AUDIT TEST SUITE", () => {
         isLocked = true;
       };
 
-      const timerId = setTimeout(() => {
+      setTimeout(() => {
         lockVault();
       }, 15 * 60 * 1000);
 
@@ -192,7 +190,6 @@ describe("KEYNIX REMEDIATION AUDIT TEST SUITE", () => {
   // TASK 3: AUTHENTICATION AND MASTER SALT TESTS
   // =========================================================================
   describe("Task 3: Pre-Authentication & Master Salt Flow", () => {
-    const testEmail = "security-test@keynix.local";
     const masterPassword = "CorrectMasterPassword123!";
 
     it("should complete client-side KDF derivation using Argon2id and HKDF key separation", async () => {

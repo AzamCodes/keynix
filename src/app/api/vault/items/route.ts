@@ -89,7 +89,7 @@ export async function POST(req: Request) {
         updatedAt: item.updatedAt,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Create Vault Item Error:", error);
     return NextResponse.json({ error: "Failed to store vault item" }, { status: 500 });
   }

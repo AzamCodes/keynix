@@ -9,13 +9,9 @@ import {
   Key,
   Star,
   Copy,
-  ExternalLink,
   Eye,
   EyeOff,
-  MoreVertical,
-  ShieldCheck,
   Globe,
-  User,
 } from "lucide-react";
 import { evaluatePasswordStrength } from "@/lib/crypto";
 

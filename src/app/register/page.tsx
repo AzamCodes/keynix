@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useVault } from "@/context/VaultContext";
-import { KeyRound, Mail, Lock, ArrowRight, Loader2, ShieldCheck, Sparkles } from "lucide-react";
+import { KeyRound, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
 import { evaluatePasswordStrength } from "@/lib/crypto";
 import { RecoveryModal } from "@/components/RecoveryModal";
 

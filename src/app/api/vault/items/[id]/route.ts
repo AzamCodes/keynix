@@ -65,7 +65,7 @@ export async function PUT(
         updatedAt: updated.updatedAt,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Update Vault Item Error:", error);
     return NextResponse.json({ error: "Failed to update item" }, { status: 500 });
   }
@@ -96,7 +96,7 @@ export async function DELETE(
     });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Delete Vault Item Error:", error);
     return NextResponse.json({ error: "Failed to delete item" }, { status: 500 });
   }

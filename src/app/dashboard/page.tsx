@@ -26,7 +26,6 @@ import Link from "next/link";
 
 export default function DashboardPage() {
   const {
-    user,
     isAuthenticated,
     isLocked,
     isLoading,
@@ -34,7 +33,6 @@ export default function DashboardPage() {
     selectedCategory,
     setSelectedCategory,
     searchQuery,
-    securityStats,
     activeToast,
     addItem,
   } = useVault();

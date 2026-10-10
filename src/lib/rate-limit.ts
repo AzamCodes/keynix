@@ -83,13 +83,13 @@ export async function checkRateLimit(
   const key = `ratelimit:${type}:${identifier}`;
 
   try {
-    const record = await (db as any).rateLimit.findUnique({
+    const record = await db.rateLimit.findUnique({
       where: { key },
     });
 
     if (!record || record.expiresAt.getTime() <= now) {
       const expiresAt = new Date(now + windowMs);
-      await (db as any).rateLimit.upsert({
+      await db.rateLimit.upsert({
         where: { key },
         create: { key, count: 1, expiresAt },
         update: { count: 1, expiresAt },
@@ -111,7 +111,7 @@ export async function checkRateLimit(
       };
     }
 
-    const updated = await (db as any).rateLimit.update({
+    const updated = await db.rateLimit.update({
       where: { key },
       data: { count: { increment: 1 } },
     });
@@ -122,7 +122,7 @@ export async function checkRateLimit(
       remaining: Math.max(0, maxRequests - updated.count),
       reset: record.expiresAt.getTime(),
     };
-  } catch (err) {
+  } catch {
     // Priority 3: In-memory fallback (Unit tests / Offline dev)
     return checkMemoryLimit(key, maxRequests, windowMs);
   }
