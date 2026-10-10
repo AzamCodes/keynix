@@ -13,6 +13,7 @@ import {
   Database,
 } from "lucide-react";
 import { generatePassword, evaluatePasswordStrength } from "@/lib/crypto";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 
 export default function LandingPage() {
   const [demoPassword, setDemoPassword] = useState("K3yn!x-Vault-2026$#");
@@ -28,36 +29,36 @@ export default function LandingPage() {
       </div>
 
       {/* Header Navigation */}
-      <header className="h-20 border-b border-zinc-800/80 bg-zinc-950/60 backdrop-blur-xl sticky top-0 z-40 px-6 lg:px-12 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
+      <header className="h-20 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-xl sticky top-0 z-40 px-4 sm:px-6 lg:px-12 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-3 group">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30 group-hover:scale-105 transition shrink-0">
             <KeyRound className="w-6 h-6" />
           </div>
-          <div>
+          <div className="flex items-center">
             <span className="text-xl font-black tracking-tight text-white font-mono">KEYNIX</span>
-            <span className="ml-2.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              Zero-Knowledge Architecture
+            <span className="hidden sm:inline-block ml-2.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 whitespace-nowrap">
+              Zero-Knowledge Vault
             </span>
           </div>
-        </div>
+        </Link>
 
         <nav className="hidden md:flex items-center gap-8 text-xs font-semibold text-zinc-400">
           <a href="#features" className="hover:text-white transition">Features</a>
           <a href="#architecture" className="hover:text-white transition">Cryptography</a>
           <a href="#demo" className="hover:text-white transition">Live Demo</a>
-          <a href="#faq" className="hover:text-white transition">FAQ</a>
         </nav>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <PwaInstallPrompt />
           <Link
             href="/login"
-            className="px-4 py-2 text-xs font-semibold text-zinc-300 hover:text-white transition"
+            className="px-3 sm:px-4 py-2 text-xs font-semibold text-zinc-300 hover:text-white transition"
           >
             Sign In
           </Link>
           <Link
             href="/register"
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition"
+            className="px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition whitespace-nowrap"
           >
             Open Vault
           </Link>
