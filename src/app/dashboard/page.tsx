@@ -11,6 +11,7 @@ import { SecurityHealthView } from "@/components/SecurityHealthView";
 import { LockScreen } from "@/components/LockScreen";
 import { SettingsModal } from "@/components/SettingsModal";
 import { Toast } from "@/components/Toast";
+import { BottomNav } from "@/components/BottomNav";
 import {
   Plus,
   KeyRound,
@@ -188,7 +189,7 @@ export default function DashboardPage() {
         />
 
         {/* Content Area */}
-        <main className="flex-1 p-3 sm:p-5 md:p-8 max-w-6xl mx-auto overflow-y-auto w-full">
+        <main className="flex-1 p-3 sm:p-5 md:p-8 pb-24 md:pb-8 max-w-6xl mx-auto overflow-y-auto w-full">
           {/* Mobile Horizontal Category Bar */}
           <div className="md:hidden flex items-center gap-1.5 overflow-x-auto pb-3 mb-3 border-b border-zinc-800/60 no-scrollbar">
             {mobileCategories.map((cat) => {
@@ -281,6 +282,12 @@ export default function DashboardPage() {
           )}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation Bar */}
+      <BottomNav
+        onOpenNewItem={() => handleOpenNewItem("password")}
+        onOpenGenerator={() => setIsGeneratorOpen(true)}
+      />
 
       {/* Lock Screen Overlay when memory locked */}
       {isLocked && <LockScreen />}
