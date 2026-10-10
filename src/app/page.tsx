@@ -13,7 +13,6 @@ import {
   Database,
 } from "lucide-react";
 import { generatePassword, evaluatePasswordStrength } from "@/lib/crypto";
-import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 
 export default function LandingPage() {
   const [demoPassword, setDemoPassword] = useState("K3yn!x-Vault-2026$#");
@@ -49,7 +48,6 @@ export default function LandingPage() {
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <PwaInstallPrompt />
           <Link
             href="/login"
             className="px-3 sm:px-4 py-2 text-xs font-semibold text-zinc-300 hover:text-white transition"

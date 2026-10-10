@@ -1,6 +1,13 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512'>
-  <rect width='512' height='512' rx='128' fill='#090d16'/>
-  <rect x='16' y='16' width='480' height='480' rx='112' fill='none' stroke='#4f46e5' stroke-width='8' opacity='0.4'/>
-  <circle cx='256' cy='200' r='80' fill='none' stroke='#6366f1' stroke-width='32'/>
-  <path d='M256 280v120M256 340h50M256 380h35' stroke='#6366f1' stroke-width='32' stroke-linecap='round'/>
+  <defs>
+    <linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'>
+      <stop offset='0%' stop-color='#4f46e5' />
+      <stop offset='100%' stop-color='#7c3aed' />
+    </linearGradient>
+  </defs>
+  <rect width='512' height='512' rx='128' fill='url(#grad)'/>
+  <g transform='translate(64, 64) scale(16)' stroke='#ffffff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' fill='none'>
+    <path d='M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z' />
+    <circle cx='16.5' cy='7.5' r='.5' fill='#ffffff' />
+  </g>
 </svg>
