@@ -18,6 +18,16 @@ export const metadata: Metadata = {
   title: "Keynix — Zero-Knowledge Password Vault",
   description: "End-to-end encrypted zero-knowledge password manager powered by Argon2id and AES-256-GCM.",
   manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "32x32" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

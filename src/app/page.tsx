@@ -149,15 +149,14 @@ export default function LandingPage() {
               </div>
               <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden">
                 <div
-                  className={`h-full transition-all duration-300 ${
-                    strength.score >= 85
-                      ? "bg-emerald-500"
-                      : strength.score >= 65
+                  className={`h-full transition-all duration-300 ${strength.score >= 85
+                    ? "bg-emerald-500"
+                    : strength.score >= 65
                       ? "bg-indigo-500"
                       : strength.score >= 40
-                      ? "bg-amber-500"
-                      : "bg-rose-500"
-                  }`}
+                        ? "bg-amber-500"
+                        : "bg-rose-500"
+                    }`}
                   style={{ width: `${Math.max(10, strength.score)}%` }}
                 />
               </div>
