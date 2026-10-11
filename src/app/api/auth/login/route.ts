@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { hashAuthKey, timingSafeCompare } from "@/lib/server-auth";
+import { getServerSecret, hashAuthKey, timingSafeCompare } from "@/lib/server-auth";
 import { createSession } from "@/lib/session";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { hasSameRequestOrigin } from "@/lib/request-origin";
+import { readLimitedJson } from "@/lib/read-limited-json";
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -11,7 +13,12 @@ const LoginSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  if (!hasSameRequestOrigin(req)) {
+    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  }
   try {
+    getServerSecret();
+
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "127.0.0.1";
     const ipLimit = await checkRateLimit(clientIp, "login", 5, 60 * 1000);
 
@@ -25,9 +32,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json();
+    const body = await readLimitedJson(req, 8 * 1024);
+    if (!body.ok) return NextResponse.json({ error: body.error }, { status: body.status });
 
-    const parseResult = LoginSchema.safeParse(body);
+    const parseResult = LoginSchema.safeParse(body.value);
 
     if (!parseResult.success) {
       return NextResponse.json(
@@ -89,6 +97,9 @@ export async function POST(req: Request) {
         encryptedVaultKey: JSON.parse(user.encryptedVaultKey),
         recoveryEncryptedKey: user.recoveryEncryptedKey
           ? JSON.parse(user.recoveryEncryptedKey)
+          : null,
+        recoveryEncryptedKeyV2: user.recoveryEncryptedKeyV2
+          ? JSON.parse(user.recoveryEncryptedKeyV2)
           : null,
       },
     });

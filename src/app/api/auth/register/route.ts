@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { hashAuthKey } from "@/lib/server-auth";
+import { getServerSecret, hashAuthKey } from "@/lib/server-auth";
 import { createSession } from "@/lib/session";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { hasSameRequestOrigin } from "@/lib/request-origin";
+import { readLimitedJson } from "@/lib/read-limited-json";
 
 const RegisterSchema = z.object({
   email: z.string().email().max(255),
@@ -29,10 +31,23 @@ const RegisterSchema = z.object({
       salt: z.string(),
     })
     .optional(),
+  recoveryEncryptedKeyV2: z.object({
+    version: z.literal(2),
+    iv: z.string().length(16),
+    tag: z.string().length(24),
+    ciphertext: z.string().length(44),
+    salt: z.string().length(24),
+  }),
+  recoveryOpaqueRecord: z.string().min(1).max(16384),
 });
 
 export async function POST(req: Request) {
+  if (!hasSameRequestOrigin(req)) {
+    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  }
   try {
+    getServerSecret();
+
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "127.0.0.1";
     const ipLimit = await checkRateLimit(clientIp, "register", 3, 15 * 60 * 1000);
 
@@ -46,9 +61,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json();
+    const body = await readLimitedJson(req, 32 * 1024);
+    if (!body.ok) return NextResponse.json({ error: body.error }, { status: body.status });
 
-    const parseResult = RegisterSchema.safeParse(body);
+    const parseResult = RegisterSchema.safeParse(body.value);
 
     if (!parseResult.success) {
       return NextResponse.json(
@@ -57,7 +73,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { email, authKey, masterSalt, kdfParams, encryptedVaultKey, recoveryEncryptedKey } =
+    const { email, authKey, masterSalt, kdfParams, encryptedVaultKey, recoveryEncryptedKey, recoveryEncryptedKeyV2, recoveryOpaqueRecord } =
       parseResult.data;
 
     const normalizedEmail = email.toLowerCase().trim();
@@ -86,6 +102,8 @@ export async function POST(req: Request) {
         recoveryEncryptedKey: recoveryEncryptedKey
           ? JSON.stringify(recoveryEncryptedKey)
           : null,
+        recoveryEncryptedKeyV2: JSON.stringify(recoveryEncryptedKeyV2),
+        recoveryOpaqueRecord,
       },
     });
 
@@ -111,6 +129,7 @@ export async function POST(req: Request) {
         recoveryEncryptedKey: user.recoveryEncryptedKey
           ? JSON.parse(user.recoveryEncryptedKey)
           : null,
+        recoveryEncryptedKeyV2: JSON.parse(user.recoveryEncryptedKeyV2!),
       },
     });
   } catch (error: unknown) {

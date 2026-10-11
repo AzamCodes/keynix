@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   evaluatePasswordStrength,
+  generateRecoveryPhrase,
   encryptVaultBackup,
   decryptVaultBackup,
 } from "@/lib/crypto";
@@ -27,13 +28,18 @@ interface Props {
 }
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
-  const { user, changeMasterPassword, deleteAccount, items, addItem, copyToClipboard } = useVault();
+  const { user, changeMasterPassword, rotateRecoveryMaterial, deleteAccount, items, addItem, copyToClipboard } = useVault();
 
   const [activeTab, setActiveTab] = useState<"security" | "backup" | "account">("security");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [newRecoveryPhrase, setNewRecoveryPhrase] = useState("");
+  const [recoveryPhraseSaved, setRecoveryPhraseSaved] = useState(false);
+  const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
+  const [isRotatingRecovery, setIsRotatingRecovery] = useState(false);
 
   // Backup Export State
   const [exportPassword, setExportPassword] = useState("");
@@ -73,8 +79,33 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
     } else {
       setNewPassword("");
       setConfirmPassword("");
-      onClose();
+      closeSettings();
     }
+  };
+
+  const handleRecoveryRotation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryStatus(null);
+    if (!recoveryPassword || !newRecoveryPhrase || !recoveryPhraseSaved) {
+      setRecoveryStatus("Verify your current password and save the displayed phrase before continuing.");
+      return;
+    }
+    setIsRotatingRecovery(true);
+    const result = await rotateRecoveryMaterial(recoveryPassword, newRecoveryPhrase);
+    setIsRotatingRecovery(false);
+    setRecoveryStatus(result.success ? "Recovery material updated." : result.error || "Unable to update recovery material.");
+    if (result.success) {
+      setRecoveryPassword("");
+      setNewRecoveryPhrase("");
+      setRecoveryPhraseSaved(false);
+    }
+  };
+
+  const closeSettings = () => {
+    setRecoveryPassword("");
+    setNewRecoveryPhrase("");
+    setRecoveryPhraseSaved(false);
+    onClose();
   };
 
   const handleExportBackup = async (e: React.FormEvent) => {
@@ -175,7 +206,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
       )
     ) {
       await deleteAccount();
-      onClose();
+      closeSettings();
     }
   };
 
@@ -191,7 +222,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
             <p className="text-xs text-zinc-400">{user?.email}</p>
           </div>
           <button
-            onClick={onClose}
+            onClick={closeSettings}
             className="p-2 sm:p-2.5 rounded-xl bg-zinc-800/60 text-zinc-400 hover:text-white transition"
           >
             <X className="w-4 h-4" />
@@ -228,7 +259,11 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {/* Tab 1: Master Password */}
           {activeTab === "security" && (
+            <div className="space-y-6">
             <form onSubmit={handlePasswordChange} className="space-y-4">
+              <p role="status" className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-200">
+                Master-password changes are temporarily unavailable until fresh credential authorization is implemented. Your current password and vault remain unchanged.
+              </p>
               <p className="text-xs text-zinc-400 leading-relaxed">
                 Changing your Master Password re-wraps your Vault Key (<code className="font-mono text-indigo-400">K_vault</code>) under a new Master Encryption Key (<code className="font-mono text-indigo-400">K_master_enc</code>). Vault items remain untouched.
               </p>
@@ -275,7 +310,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
               <button
                 type="submit"
-                disabled={isUpdating || !newPassword || !confirmPassword}
+                disabled
                 className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/20 text-xs transition disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {isUpdating ? (
@@ -288,6 +323,34 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 )}
               </button>
             </form>
+            <form onSubmit={handleRecoveryRotation} className="space-y-3 border-t border-zinc-800 pt-5">
+              <div>
+                <h4 className="text-sm font-bold text-white">Enroll or rotate recovery phrase</h4>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-400">Requires your current master password. The new phrase and vault key stay in this browser; save the phrase before submitting.</p>
+              </div>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={recoveryPassword}
+                onChange={(event) => setRecoveryPassword(event.target.value)}
+                placeholder="Current Master Password"
+                className="w-full px-4 py-2.5 bg-zinc-950/60 border border-zinc-800 rounded-xl text-white text-sm outline-none focus:border-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => { setNewRecoveryPhrase(generateRecoveryPhrase()); setRecoveryPhraseSaved(false); setRecoveryStatus(null); }}
+                className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold"
+              >
+                Generate a new 24-word phrase
+              </button>
+              {newRecoveryPhrase && <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 font-mono text-xs leading-6 text-amber-200 break-words">{newRecoveryPhrase}</div>}
+              {newRecoveryPhrase && <label className="flex items-start gap-2 text-xs text-zinc-300"><input type="checkbox" checked={recoveryPhraseSaved} onChange={(event) => setRecoveryPhraseSaved(event.target.checked)} /><span>I saved this phrase somewhere secure and can use it to recover my vault.</span></label>}
+              {recoveryStatus && <p role="status" className="text-xs text-zinc-300">{recoveryStatus}</p>}
+              <button type="submit" disabled={isRotatingRecovery || !recoveryPassword || !newRecoveryPhrase || !recoveryPhraseSaved} className="w-full rounded-xl bg-zinc-800 px-4 py-2.5 text-xs font-semibold text-white disabled:opacity-50">
+                {isRotatingRecovery ? "Verifying and updating…" : "Save recovery material"}
+              </button>
+            </form>
+            </div>
           )}
 
           {/* Tab 2: Encrypted Export & Import */}
@@ -403,11 +466,12 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 </div>
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Deleting your Keynix account immediately deletes your user row, encrypted vault items, active sessions, and cryptographic key parameters. There is no un-delete option.
+                Account deletion is temporarily unavailable until fresh credential authorization is implemented. Your account and vault remain unchanged.
               </p>
               <button
+                disabled
                 onClick={handleDeleteAccount}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/20 transition flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-red-600 text-white text-xs font-bold shadow-lg shadow-red-600/20 transition flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Permanently Delete Account</span>

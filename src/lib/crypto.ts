@@ -328,48 +328,117 @@ export function generateRecoveryPhrase(): string {
   return bip39.generateMnemonic(256); // 24-word recovery phrase
 }
 
-export async function encryptVaultKeyWithRecovery(
-  vaultKey: Uint8Array,
-  mnemonic: string
-): Promise<{ iv: string; tag: string; ciphertext: string; salt: string }> {
-  if (!bip39.validateMnemonic(mnemonic)) {
-    throw new Error("Invalid BIP-39 recovery mnemonic");
-  }
-  const saltBase64 = generateSalt(16);
-  const seedBuffer = await bip39.mnemonicToSeed(mnemonic);
-  const derivedBytes = new Uint8Array(seedBuffer.subarray(0, 32));
+export interface RecoveryEncryptedKey {
+  iv: string;
+  tag: string;
+  ciphertext: string;
+  salt?: string;
+  version?: 1 | 2;
+}
 
-  const recoveryCryptoKey = await crypto.subtle.importKey(
+function normalizeMnemonic(mnemonic: string): string {
+  return mnemonic.normalize("NFKD").trim().toLowerCase().split(/\s+/).join(" ");
+}
+
+async function deriveRecoveryWrapKey(seed: Uint8Array, salt: Uint8Array, identity: string): Promise<CryptoKey> {
+  const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    derivedBytes as unknown as BufferSource,
+    seed as unknown as BufferSource,
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: salt as unknown as BufferSource,
+      info: new TextEncoder().encode(`keynix:v2:recovery:${identity}`) as unknown as BufferSource,
+    },
+    keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"]
   );
+}
 
-  const encKey = await encryptVaultKey(vaultKey, recoveryCryptoKey, "recovery");
-  return { ...encKey, salt: saltBase64 };
+export async function encryptVaultKeyWithRecovery(
+  vaultKey: Uint8Array,
+  mnemonic: string,
+  accountIdentity: string
+): Promise<RecoveryEncryptedKey & { version: 2 }> {
+  const normalizedMnemonic = normalizeMnemonic(mnemonic);
+  if (!accountIdentity || !bip39.validateMnemonic(normalizedMnemonic)) {
+    throw new Error("Invalid BIP-39 recovery mnemonic");
+  }
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const seed = await bip39.mnemonicToSeed(normalizedMnemonic);
+  const seedKey = new Uint8Array(seed.subarray(0, 32));
+  try {
+    const key = await deriveRecoveryWrapKey(seedKey, salt, accountIdentity);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const aad = new TextEncoder().encode(`keynix:v2:recovery:${accountIdentity}`);
+    const encrypted = new Uint8Array(await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: iv as unknown as BufferSource, additionalData: aad as unknown as BufferSource, tagLength: 128 },
+      key,
+      vaultKey as unknown as BufferSource
+    ));
+    return {
+      version: 2,
+      salt: bufferToBase64(salt),
+      iv: bufferToBase64(iv),
+      ciphertext: bufferToBase64(encrypted.subarray(0, -16)),
+      tag: bufferToBase64(encrypted.subarray(-16)),
+    };
+  } finally {
+    wipeBytes(seedKey);
+    wipeBytes(seed);
+  }
 }
 
 export async function decryptVaultKeyWithRecovery(
-  encRecoveryData: { iv: string; tag: string; ciphertext: string; salt: string },
-  mnemonic: string
+  encRecoveryData: RecoveryEncryptedKey,
+  mnemonic: string,
+  accountIdentity?: string
 ): Promise<Uint8Array> {
-  if (!bip39.validateMnemonic(mnemonic)) {
+  const normalizedMnemonic = normalizeMnemonic(mnemonic);
+  if (!bip39.validateMnemonic(normalizedMnemonic)) {
     throw new Error("Invalid BIP-39 recovery mnemonic");
   }
-  const seedBuffer = await bip39.mnemonicToSeed(mnemonic);
-  const derivedBytes = new Uint8Array(seedBuffer.subarray(0, 32));
+  const seed = await bip39.mnemonicToSeed(normalizedMnemonic);
+  const seedKey = new Uint8Array(seed.subarray(0, 32));
+  try {
+    if (encRecoveryData.version === 2) {
+      if (!accountIdentity || !encRecoveryData.salt) throw new Error("Invalid recovery envelope");
+      const salt = base64ToBuffer(encRecoveryData.salt);
+      if (salt.length !== 16) throw new Error("Invalid recovery envelope");
+      const key = await deriveRecoveryWrapKey(seedKey, salt, accountIdentity);
+      const iv = base64ToBuffer(encRecoveryData.iv);
+      const tag = base64ToBuffer(encRecoveryData.tag);
+      const ciphertext = base64ToBuffer(encRecoveryData.ciphertext);
+      if (iv.length !== 12 || tag.length !== 16 || ciphertext.length !== 32) {
+        throw new Error("Invalid recovery envelope");
+      }
+      const combined = new Uint8Array(ciphertext.length + tag.length);
+      combined.set(ciphertext);
+      combined.set(tag, ciphertext.length);
+      const aad = new TextEncoder().encode(`keynix:v2:recovery:${accountIdentity}`);
+      return new Uint8Array(await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv as unknown as BufferSource, additionalData: aad as unknown as BufferSource, tagLength: 128 },
+        key,
+        combined as unknown as BufferSource
+      ));
+    }
 
-  const recoveryCryptoKey = await crypto.subtle.importKey(
-    "raw",
-    derivedBytes as unknown as BufferSource,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-
-  return decryptVaultKey(encRecoveryData, recoveryCryptoKey, "recovery");
+    // V1 compatibility: its salt was stored but not used, and AAD was static.
+    const recoveryCryptoKey = await crypto.subtle.importKey(
+      "raw", seedKey as unknown as BufferSource, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+    );
+    return await decryptVaultKey(encRecoveryData, recoveryCryptoKey, "recovery");
+  } finally {
+    wipeBytes(seedKey);
+    wipeBytes(seed);
+  }
 }
 
 // 4b. Encrypted Backup Functions (Authenticated AES-256-GCM Backup Export/Import)

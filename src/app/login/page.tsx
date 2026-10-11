@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useVault } from "@/context/VaultContext";
@@ -20,6 +20,16 @@ export default function LoginPage() {
   const [recoveryPhrase, setRecoveryPhrase] = useState("");
   const [newMasterPassword, setNewMasterPassword] = useState("");
 
+  useEffect(() => {
+    const clearSensitiveForm = () => {
+      setMasterPassword("");
+      setRecoveryPhrase("");
+      setNewMasterPassword("");
+    };
+    window.addEventListener("keynix:lock", clearSensitiveForm);
+    return () => window.removeEventListener("keynix:lock", clearSensitiveForm);
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -29,6 +39,7 @@ export default function LoginPage() {
     setIsLoading(false);
 
     if (res.success) {
+      setMasterPassword("");
       router.push("/dashboard");
     } else {
       setError(res.error || "Failed to log in");
@@ -44,6 +55,8 @@ export default function LoginPage() {
     setIsLoading(false);
 
     if (res.success) {
+      setRecoveryPhrase("");
+      setNewMasterPassword("");
       router.push("/dashboard");
     } else {
       setError(res.error || "Failed account recovery");

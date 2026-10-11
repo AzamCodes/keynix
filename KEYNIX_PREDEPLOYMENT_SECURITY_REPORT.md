@@ -1,10 +1,18 @@
 # Keynix Pre-Deployment Security & Architecture Audit Report
 
+> **Historical report — not deployment approval.** This assessment is dated
+> October 10, 2026 and predates the current security review and worktree. Its
+> “APPROVED FOR PRODUCTION DEPLOYMENT” conclusion, test totals, build result,
+> and migration-safety claims are not current evidence. The current status is
+> **NOT READY / DO NOT DEPLOY** until the unresolved step-up authentication,
+> recovery, legacy v1 ciphertext migration, deployment configuration, and
+> production-build issues are independently resolved and verified.
+
 **Auditor Role**: Senior Application Security Engineer & PostgreSQL/Prisma Deployment Specialist  
 **Project**: Keynix Password Manager  
 **Target Environment**: Vercel Serverless Functions + Neon PostgreSQL  
 **Audit Date**: October 10, 2026  
-**Status**: APPROVED FOR PRODUCTION DEPLOYMENT (High-Severity Remediations Completed & Verified)
+**Status**: SUPERSEDED — historical conclusion only; this report does not authorize deployment.
 
 ---
 

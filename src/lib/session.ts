@@ -62,15 +62,29 @@ export async function getCurrentSession() {
 export async function destroySession() {
   const cookieStore = await cookies();
   const rawToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  let revoked = true;
 
   if (rawToken) {
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-    await db.session.updateMany({
-      where: { tokenHash },
-      data: { revokedAt: new Date() },
-    }).catch(() => {});
+    try {
+      const result = await db.session.updateMany({
+        where: { tokenHash, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      // A zero count means this token is absent or already revoked; in either
+      // case no active server-side session remains for it.
+      revoked = result.count <= 1;
+    } catch {
+      revoked = false;
+    }
   }
 
+  cookieStore.delete(SESSION_COOKIE_NAME);
+  return revoked;
+}
+
+export async function clearSessionCookie() {
+  const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE_NAME);
 }
 

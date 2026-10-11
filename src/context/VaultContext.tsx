@@ -1,6 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import * as opaque from "@serenity-kit/opaque";
+import * as bip39 from "bip39";
 import {
   deriveMasterKey,
   deriveAuthKey,
@@ -14,8 +16,10 @@ import {
   generateRecoveryPhrase,
   encryptVaultKeyWithRecovery,
   decryptVaultKeyWithRecovery,
+  RecoveryEncryptedKey,
   wipeBytes,
 } from "@/lib/crypto";
+import { installIdleLock } from "@/lib/idle-lock";
 
 
 export interface DecryptedVaultItem {
@@ -44,6 +48,7 @@ export interface UserSessionData {
   kdfParams: { algorithm: string; m: number; t: number; p: number };
   encryptedVaultKey: { iv: string; tag: string; ciphertext: string };
   recoveryEncryptedKey?: { iv: string; tag: string; ciphertext: string; salt: string } | null;
+  recoveryEncryptedKeyV2?: RecoveryEncryptedKey | null;
 }
 
 interface VaultContextType {
@@ -80,6 +85,7 @@ interface VaultContextType {
   deleteItem: (id: string) => Promise<boolean>;
   toggleFavorite: (id: string) => Promise<boolean>;
   changeMasterPassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  rotateRecoveryMaterial: (currentPassword: string, recoveryPhrase: string) => Promise<{ success: boolean; error?: string }>;
   deleteAccount: () => Promise<boolean>;
 
   // Clipboard & UI Helpers
@@ -110,15 +116,17 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [activeToast, setActiveToast] = useState<string | null>(null);
 
-  const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const idleCleanupRef = useRef<(() => void) | null>(null);
   const lockVersionRef = useRef<number>(0);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clipboardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionCheckVersionRef = useRef(0);
 
   const lockVault = useCallback(() => {
     lockVersionRef.current += 1;
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = null;
-    }
+    window.dispatchEvent(new Event("keynix:lock"));
+    idleCleanupRef.current?.();
+    idleCleanupRef.current = null;
     setVaultKey((prevKey) => {
       if (prevKey) {
         wipeBytes(prevKey);
@@ -132,67 +140,95 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setActiveToast(null);
   }, []);
 
-  const resetIdleTimer = useCallback(() => {
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    if (isAuthenticated && !isLocked && vaultKey) {
-      idleTimerRef.current = setTimeout(() => {
-        lockVault();
-      }, AUTO_LOCK_TIMEOUT_MS);
-    }
+  useEffect(() => {
+    if (!isAuthenticated || isLocked || !vaultKey) return;
+    const cleanup = installIdleLock(AUTO_LOCK_TIMEOUT_MS, lockVault);
+    idleCleanupRef.current = cleanup;
+    return () => {
+      cleanup();
+      if (idleCleanupRef.current === cleanup) idleCleanupRef.current = null;
+    };
   }, [isAuthenticated, isLocked, vaultKey, lockVault]);
 
-  useEffect(() => {
-    const handleActivity = () => resetIdleTimer();
-    window.addEventListener("mousemove", handleActivity);
-    window.addEventListener("keydown", handleActivity);
-    return () => {
-      window.removeEventListener("mousemove", handleActivity);
-      window.removeEventListener("keydown", handleActivity);
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    };
-  }, [resetIdleTimer]);
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    if (clipboardTimerRef.current) clearTimeout(clipboardTimerRef.current);
+  }, []);
 
   // Toast notification helper
-  const copyToClipboard = useCallback((text: string, label = "Copied to clipboard!") => {
+  const copyToClipboard = useCallback(async (text: string, label = "Copied to clipboard!") => {
     if (!text) return;
-    navigator.clipboard.writeText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      setActiveToast("Clipboard access was unavailable.");
+      return;
+    }
     setActiveToast(label);
-    setTimeout(() => setActiveToast(null), 3000);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setActiveToast(null), 3000);
 
-    // Auto-clear clipboard after 20 seconds for sensitive values
-    setTimeout(() => {
-      navigator.clipboard.readText().then((clipText) => {
-        if (clipText === text) {
-          navigator.clipboard.writeText("");
+    // Best effort only: browser permissions and external clipboard managers
+    // may prevent reading or clearing the copied value.
+    if (clipboardTimerRef.current) clearTimeout(clipboardTimerRef.current);
+    clipboardTimerRef.current = setTimeout(async () => {
+      try {
+        if ((await navigator.clipboard.readText()) === text) {
+          await navigator.clipboard.writeText("");
         }
-      }).catch(() => {});
+      } catch {
+        // Clipboard read/clear is not supported in every browser context.
+      }
     }, 20000);
   }, []);
 
   // Check current session on mount
-  const checkSession = useCallback(async () => {
+  const checkSession = useCallback(async (showLoading = true) => {
+    const checkVersion = ++sessionCheckVersionRef.current;
     try {
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       const res = await fetch("/api/auth/session");
+      if (checkVersion !== sessionCheckVersionRef.current) return;
       if (res.ok) {
         const data = await res.json();
+        if (checkVersion !== sessionCheckVersionRef.current) return;
         if (data.authenticated && data.user) {
           setUser(data.user);
           setIsAuthenticated(true);
-          setIsLocked(true); // Locked until user enters master password to unwrap key
+          if (!vaultKey) setIsLocked(true); // Initial session restore needs a fresh unlock.
         }
+      } else {
+        lockVault();
+        setUser(null);
+        setIsAuthenticated(false);
       }
-    } catch (e) {
-      console.error("Session check failed:", e);
+    } catch {
+      // If the session cannot be confirmed, do not keep decrypted content open.
+      lockVault();
+      setUser(null);
+      setIsAuthenticated(false);
     } finally {
-      setIsLoading(false);
+      if (showLoading && checkVersion === sessionCheckVersionRef.current) setIsLoading(false);
     }
-  }, []);
+  }, [lockVault, vaultKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     checkSession();
   }, [checkSession]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const checkWhenVisible = () => {
+      if (document.visibilityState === "visible") void checkSession(false);
+    };
+    const timer = setInterval(() => void checkSession(false), 60_000);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+    };
+  }, [isAuthenticated, checkSession]);
 
   const fetchAndDecryptVault = useCallback(async () => {
     if (!vaultKey || !user || isLocked) return;
@@ -200,7 +236,15 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const res = await fetch("/api/vault/items");
-      if (!res.ok) return;
+      if (lockVersionRef.current !== currentLockVersion) return;
+      if (!res.ok) {
+        if (res.status === 401) {
+          lockVault();
+          setUser(null);
+          setIsAuthenticated(false);
+        }
+        return;
+      }
       const data = await res.json();
       const rawItems = data.items || [];
 
@@ -208,6 +252,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       for (const item of rawItems) {
         if (isLocked || lockVersionRef.current !== currentLockVersion) return;
         try {
+          const aadMetadata = JSON.parse(item.aadMeta) as { version?: number };
+          const expectedAadContext = aadMetadata.version === 2
+            ? { itemId: item.id, userId: user.id, version: 2 }
+            : undefined;
           const payload = (await decryptVaultPayload(
             {
               ciphertext: item.ciphertext,
@@ -215,7 +263,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               tag: item.tag,
               aadMeta: item.aadMeta,
             },
-            vaultKey
+            vaultKey,
+            expectedAadContext
           )) as Partial<DecryptedVaultItem>;
 
           decryptedList.push({
@@ -247,7 +296,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (err) {
       console.error("Fetch vault items failed:", err);
     }
-  }, [vaultKey, user, isLocked]);
+  }, [vaultKey, user, isLocked, lockVault]);
 
   useEffect(() => {
     if (vaultKey && !isLocked) {
@@ -258,6 +307,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Auth Operations
   const login = async (email: string, masterPassword: string) => {
+    const operationVersion = lockVersionRef.current;
+    let masterKey: Uint8Array | null = null;
     try {
       setIsLoading(true);
 
@@ -277,7 +328,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const masterSalt = preauthData.masterSalt;
 
       // 2. Client-side key derivation using salt obtained from preauth endpoint
-      const masterKey = await deriveMasterKey(masterPassword, masterSalt);
+      masterKey = await deriveMasterKey(masterPassword, masterSalt);
       const authKey = await deriveAuthKey(masterKey);
 
       // 3. Authenticate with server using authKey
@@ -295,8 +346,11 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
 
       if (!loginRes.ok) {
-        wipeBytes(masterKey);
         return { success: false, error: (data.error as string) || "Invalid email or password" };
+      }
+
+      if (operationVersion !== lockVersionRef.current) {
+        return { success: false, error: "Login was cancelled" };
       }
 
       const userData: UserSessionData = data.user as UserSessionData;
@@ -306,7 +360,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // 4. Derive Master Enc Key & Unwrap Vault Key
       const masterEncKey = await deriveMasterEncKey(masterKey);
       const unwrappedVaultKey = await decryptVaultKey(userData.encryptedVaultKey, masterEncKey);
-      wipeBytes(masterKey);
+      if (operationVersion !== lockVersionRef.current) {
+        wipeBytes(unwrappedVaultKey);
+        return { success: false, error: "Login was cancelled" };
+      }
 
       setVaultKey(unwrappedVaultKey);
       setIsLocked(false);
@@ -316,24 +373,47 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const message = err instanceof Error ? err.message : "An unexpected error occurred";
       return { success: false, error: message };
     } finally {
+      if (masterKey) wipeBytes(masterKey);
       setIsLoading(false);
     }
   };
 
 
   const register = async (email: string, masterPassword: string) => {
+    const operationVersion = lockVersionRef.current;
+    let masterKey: Uint8Array | null = null;
+    let newVaultKey: Uint8Array | null = null;
     try {
       setIsLoading(true);
       const masterSalt = generateSalt(16);
-      const masterKey = await deriveMasterKey(masterPassword, masterSalt);
+      masterKey = await deriveMasterKey(masterPassword, masterSalt);
       const authKey = await deriveAuthKey(masterKey);
       const masterEncKey = await deriveMasterEncKey(masterKey);
 
-      const newVaultKey = generateVaultKey();
+      newVaultKey = generateVaultKey();
       const encryptedVaultKey = await encryptVaultKey(newVaultKey, masterEncKey);
 
       const recoveryPhrase = generateRecoveryPhrase();
-      const recoveryEncryptedKey = await encryptVaultKeyWithRecovery(newVaultKey, recoveryPhrase);
+      const normalizedEmail = email.toLowerCase().trim();
+      const recoveryEncryptedKeyV2 = await encryptVaultKeyWithRecovery(newVaultKey, recoveryPhrase, normalizedEmail);
+
+      await opaque.ready;
+      const normalizedRecoveryPhrase = recoveryPhrase.normalize("NFKD").trim().toLowerCase().split(/\s+/).join(" ");
+      const registration = opaque.client.startRegistration({ password: normalizedRecoveryPhrase });
+      const registrationStart = await fetch("/api/auth/recovery/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail, registrationRequest: registration.registrationRequest }),
+      });
+      if (!registrationStart.ok) return { success: false, error: "Recovery setup is unavailable" };
+      const registrationData = await registrationStart.json();
+      const recoveryRegistration = opaque.client.finishRegistration({
+        clientRegistrationState: registration.clientRegistrationState,
+        registrationResponse: registrationData.registrationResponse,
+        password: normalizedRecoveryPhrase,
+        identifiers: { client: normalizedEmail, server: "keynix:recovery:v2" },
+        keyStretching: "memory-constrained",
+      });
 
       const regRes = await fetch("/api/auth/register", {
         method: "POST",
@@ -344,7 +424,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           masterSalt,
           kdfParams: { algorithm: "argon2id", m: 65536, t: 3, p: 4 },
           encryptedVaultKey,
-          recoveryEncryptedKey,
+          recoveryEncryptedKeyV2,
+          recoveryOpaqueRecord: recoveryRegistration.registrationRecord,
         }),
       });
 
@@ -359,29 +440,41 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return { success: false, error: (data.error as string) || "Registration failed" };
       }
 
+      if (operationVersion !== lockVersionRef.current) {
+        wipeBytes(newVaultKey);
+        return { success: false, error: "Registration was cancelled" };
+      }
+
       setUser(data.user as UserSessionData);
       setIsAuthenticated(true);
       setVaultKey(newVaultKey);
       setIsLocked(false);
 
       return { success: true, recoveryPhrase };
-    } catch (err: unknown) {
-      console.error("Register error:", err);
-      const message = err instanceof Error ? err.message : "Registration failed";
-      return { success: false, error: message };
+    } catch {
+      // Registration includes recovery material; avoid logging protocol errors
+      // or exposing details from the recovery exchange to the UI.
+      return { success: false, error: "Registration failed" };
     } finally {
+      if (masterKey) wipeBytes(masterKey);
       setIsLoading(false);
     }
   };
 
   const unlockVault = async (masterPassword: string) => {
     if (!user) return { success: false, error: "No active user session" };
+    const operationVersion = lockVersionRef.current;
+    let masterKey: Uint8Array | null = null;
     try {
       setIsLoading(true);
-      const masterKey = await deriveMasterKey(masterPassword, user.masterSalt);
+      masterKey = await deriveMasterKey(masterPassword, user.masterSalt);
       const masterEncKey = await deriveMasterEncKey(masterKey);
 
       const unwrappedVaultKey = await decryptVaultKey(user.encryptedVaultKey, masterEncKey);
+      if (operationVersion !== lockVersionRef.current) {
+        wipeBytes(unwrappedVaultKey);
+        return { success: false, error: "Unlock was cancelled" };
+      }
       setVaultKey(unwrappedVaultKey);
       setIsLocked(false);
       return { success: true };
@@ -389,6 +482,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.error("Unlock error:", err);
       return { success: false, error: "Incorrect Master Password" };
     } finally {
+      if (masterKey) wipeBytes(masterKey);
       setIsLoading(false);
     }
   };
@@ -398,35 +492,65 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     recoveryPhrase: string,
     newMasterPassword: string
   ) => {
+    const operationVersion = lockVersionRef.current;
+    let newMasterKey: Uint8Array | null = null;
+    let recoveredVaultKey: Uint8Array | null = null;
     try {
       setIsLoading(true);
-      // Pre-login or fetch user session data
-      if (!user || user.email !== email) {
-        return { success: false, error: "Please log in first or verify user account" };
-      }
-      if (!user.recoveryEncryptedKey) {
-        return { success: false, error: "No recovery key found for this account" };
-      }
+      const normalizedEmail = email.toLowerCase().trim();
+      const normalizedRecoveryPhrase = recoveryPhrase.normalize("NFKD").trim().toLowerCase().split(/\s+/).join(" ");
+      if (!bip39.validateMnemonic(normalizedRecoveryPhrase)) return { success: false, error: "Unable to complete recovery" };
 
-      // Decrypt Vault Key using recovery phrase
-      const recoveredVaultKey = await decryptVaultKeyWithRecovery(
-        user.recoveryEncryptedKey,
-        recoveryPhrase
+      await opaque.ready;
+      const loginAttempt = opaque.client.startLogin({ password: normalizedRecoveryPhrase });
+      const startResponse = await fetch("/api/auth/recovery/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail, startLoginRequest: loginAttempt.startLoginRequest }),
+      });
+      if (!startResponse.ok) return { success: false, error: "Unable to complete recovery" };
+      const startData = await startResponse.json();
+      const loginResult = opaque.client.finishLogin({
+        clientLoginState: loginAttempt.clientLoginState,
+        loginResponse: startData.loginResponse,
+        password: normalizedRecoveryPhrase,
+        identifiers: { client: normalizedEmail, server: "keynix:recovery:v2" },
+        keyStretching: "memory-constrained",
+      });
+      if (!loginResult) return { success: false, error: "Unable to complete recovery" };
+
+      recoveredVaultKey = await decryptVaultKeyWithRecovery(
+        startData.recoveryEnvelope as RecoveryEncryptedKey,
+        normalizedRecoveryPhrase,
+        normalizedEmail
       );
+      if (operationVersion !== lockVersionRef.current) {
+        wipeBytes(recoveredVaultKey);
+        return { success: false, error: "Recovery was cancelled" };
+      }
 
       // Re-derive new Master Key & Auth Key
       const newMasterSalt = generateSalt(16);
-      const newMasterKey = await deriveMasterKey(newMasterPassword, newMasterSalt);
+      newMasterKey = await deriveMasterKey(newMasterPassword, newMasterSalt);
       const newAuthKey = await deriveAuthKey(newMasterKey);
       const newMasterEncKey = await deriveMasterEncKey(newMasterKey);
 
       // Re-wrap Vault Key with new Master Enc Key
       const newEncryptedVaultKey = await encryptVaultKey(recoveredVaultKey, newMasterEncKey);
 
-      const res = await fetch("/api/account/change-password", {
+      const verificationKey = await deriveMasterEncKey(newMasterKey);
+      const verifyVaultKey = await decryptVaultKey(newEncryptedVaultKey, verificationKey);
+      const wrapperMatches = verifyVaultKey.length === recoveredVaultKey.length &&
+        verifyVaultKey.every((value, index) => value === recoveredVaultKey![index]);
+      wipeBytes(verifyVaultKey);
+      if (!wrapperMatches) return { success: false, error: "Unable to complete recovery" };
+
+      const res = await fetch("/api/auth/recovery/finish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          challenge: startData.challenge,
+          finishLoginRequest: loginResult.finishLoginRequest,
           newAuthKey,
           newMasterSalt,
           newKdfParams: { algorithm: "argon2id", m: 65536, t: 3, p: 4 },
@@ -439,19 +563,32 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return { success: false, error: d.error || "Recovery failed" };
       }
 
-      setVaultKey(recoveredVaultKey);
-      setIsLocked(false);
-      await checkSession();
+      if (operationVersion !== lockVersionRef.current) {
+        wipeBytes(recoveredVaultKey);
+        return { success: false, error: "Recovery was cancelled" };
+      }
+
+      // Recovery revokes every session. Establish a fresh session through the
+      // normal login path; if that fails, the user can still sign in manually.
+      wipeBytes(recoveredVaultKey);
+      recoveredVaultKey = null;
+      setUser(null);
+      setIsAuthenticated(false);
+      const signedIn = await login(normalizedEmail, newMasterPassword);
+      if (!signedIn.success) return { success: false, error: "Recovery completed. Sign in with your new password." };
       return { success: true };
-    } catch (err: unknown) {
-      console.error("Account recovery error:", err);
+    } catch {
+      // Do not log recovery input, OPAQUE messages, or decrypted key errors.
       return { success: false, error: "Invalid recovery phrase or failed to unlock" };
     } finally {
+      if (newMasterKey) wipeBytes(newMasterKey);
+      if (recoveredVaultKey) wipeBytes(recoveredVaultKey);
       setIsLoading(false);
     }
   };
 
   const logout = async () => {
+    sessionCheckVersionRef.current += 1;
     lockVault();
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     setUser(null);
@@ -463,7 +600,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!vaultKey || !user || isLocked) return false;
     try {
       const tempId = crypto.randomUUID();
-      const aadContext = { itemId: tempId, userId: user.id, version: 1 };
+      const aadContext = { itemId: tempId, userId: user.id, version: 2 };
       const encData = await encryptVaultPayload(item, vaultKey, aadContext);
 
       const res = await fetch("/api/vault/items", {
@@ -490,7 +627,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!existing) return false;
 
       const updatedPayload = { ...existing, ...updates };
-      const aadContext = { itemId: id, userId: user.id, version: 1 };
+      const aadContext = { itemId: id, userId: user.id, version: 2 };
       const encData = await encryptVaultPayload(updatedPayload, vaultKey, aadContext);
 
       const res = await fetch(`/api/vault/items/${id}`, {
@@ -535,9 +672,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const changeMasterPassword = async (newPassword: string) => {
     if (!vaultKey || !user || isLocked) return { success: false, error: "Vault key not loaded or vault locked" };
 
+    let newMasterKey: Uint8Array | null = null;
     try {
       const newMasterSalt = generateSalt(16);
-      const newMasterKey = await deriveMasterKey(newPassword, newMasterSalt);
+      newMasterKey = await deriveMasterKey(newPassword, newMasterSalt);
       const newAuthKey = await deriveAuthKey(newMasterKey);
       const newMasterEncKey = await deriveMasterEncKey(newMasterKey);
 
@@ -565,6 +703,80 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Failed to update password";
       return { success: false, error: message };
+    } finally {
+      if (newMasterKey) wipeBytes(newMasterKey);
+    }
+  };
+
+  const rotateRecoveryMaterial = async (currentPassword: string, recoveryPhrase: string) => {
+    if (!vaultKey || !user || isLocked) return { success: false, error: "Unlock the vault before changing recovery material" };
+    let currentMasterKey: Uint8Array | null = null;
+    try {
+      const normalizedPhrase = recoveryPhrase.normalize("NFKD").trim().toLowerCase().split(/\s+/).join(" ");
+      if (!bip39.validateMnemonic(normalizedPhrase)) return { success: false, error: "Invalid recovery phrase" };
+      currentMasterKey = await deriveMasterKey(currentPassword, user.masterSalt);
+      const currentAuthKey = await deriveAuthKey(currentMasterKey);
+      const currentMasterEncKey = await deriveMasterEncKey(currentMasterKey);
+      const verifiedVaultKey = await decryptVaultKey(user.encryptedVaultKey, currentMasterEncKey);
+      const matches = verifiedVaultKey.length === vaultKey.length && verifiedVaultKey.every((value, index) => value === vaultKey[index]);
+      wipeBytes(verifiedVaultKey);
+      if (!matches) return { success: false, error: "Current password was not accepted" };
+
+      await opaque.ready;
+      const registration = opaque.client.startRegistration({ password: normalizedPhrase });
+      const registrationResponse = await fetch("/api/account/recovery/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationRequest: registration.registrationRequest, currentAuthKey }),
+      });
+      if (!registrationResponse.ok) return { success: false, error: "Unable to rotate recovery material" };
+      const registrationData = await registrationResponse.json();
+      const record = opaque.client.finishRegistration({
+        clientRegistrationState: registration.clientRegistrationState,
+        registrationResponse: registrationData.registrationResponse,
+        password: normalizedPhrase,
+        identifiers: { client: user.email, server: "keynix:recovery:v2" },
+        keyStretching: "memory-constrained",
+      });
+      const recoveryEnvelope = await encryptVaultKeyWithRecovery(vaultKey, normalizedPhrase, user.email);
+      const loginAttempt = opaque.client.startLogin({ password: normalizedPhrase });
+      const verifyStart = await fetch("/api/account/recovery/enroll/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentAuthKey,
+          recoveryOpaqueRecord: record.registrationRecord,
+          recoveryEnvelope,
+          startLoginRequest: loginAttempt.startLoginRequest,
+        }),
+      });
+      if (!verifyStart.ok) return { success: false, error: "Unable to rotate recovery material" };
+      const verifyData = await verifyStart.json();
+      const loginResult = opaque.client.finishLogin({
+        clientLoginState: loginAttempt.clientLoginState,
+        loginResponse: verifyData.loginResponse,
+        password: normalizedPhrase,
+        identifiers: { client: user.email, server: "keynix:recovery:v2" },
+        keyStretching: "memory-constrained",
+      });
+      if (!loginResult) return { success: false, error: "Unable to verify new recovery material" };
+
+      const finish = await fetch("/api/account/recovery/enroll/finish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          challenge: verifyData.challenge,
+          finishLoginRequest: loginResult.finishLoginRequest,
+          currentAuthKey,
+        }),
+      });
+      if (!finish.ok) return { success: false, error: "Unable to rotate recovery material" };
+      await checkSession();
+      return { success: true };
+    } catch {
+      return { success: false, error: "Unable to rotate recovery material" };
+    } finally {
+      if (currentMasterKey) wipeBytes(currentMasterKey);
     }
   };
 
@@ -635,6 +847,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         deleteItem,
         toggleFavorite,
         changeMasterPassword,
+        rotateRecoveryMaterial,
         deleteAccount,
         copyToClipboard,
         activeToast,

@@ -17,6 +17,9 @@ model User {
   kdfParams           String      @map("kdf_params") // JSON stringified { algorithm, m, t, p }
   encryptedVaultKey   String      @map("encrypted_vault_key") // JSON stringified { iv, tag, ciphertext }
   recoveryEncryptedKey String?     @map("recovery_encrypted_key") // JSON stringified { iv, tag, ciphertext }
+  recoveryEncryptedKeyV2 String?    @map("recovery_encrypted_key_v2")
+  recoveryOpaqueRecord String?      @map("recovery_opaque_record")
+  recoveryVersion      Int          @default(1) @map("recovery_version")
   version             Int         @default(1)
   createdAt           DateTime    @default(now()) @map("created_at")
   updatedAt           DateTime    @updatedAt @map("updated_at")
@@ -24,6 +27,7 @@ model User {
   vaultItems          VaultItem[]
   sessions            Session[]
   auditLogs           AuditLog[]
+  recoveryChallenges  RecoveryChallenge[]
 
   @@map("users")
 }
@@ -85,5 +89,25 @@ model RateLimit {
   expiresAt DateTime @map("expires_at")
 
   @@map("rate_limits")
+}
+
+model RecoveryChallenge {
+  id                String   @id @default(uuid())
+  tokenHash         String   @unique @map("token_hash")
+  userId            String?  @map("user_id")
+  user              User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose           String
+  stateCiphertext   String   @map("state_ciphertext")
+  stateIv           String   @map("state_iv")
+  recoveryVersion   Int?     @map("recovery_version")
+  sessionId         String?  @map("session_id")
+  candidateOpaqueRecord String? @map("candidate_opaque_record")
+  candidateEnvelope String? @map("candidate_envelope")
+  expiresAt         DateTime @map("expires_at")
+  consumedAt        DateTime? @map("consumed_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([userId, purpose, expiresAt])
+  @@map("recovery_challenges")
 }
 

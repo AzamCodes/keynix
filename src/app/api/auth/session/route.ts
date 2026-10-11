@@ -21,6 +21,9 @@ export async function GET() {
       recoveryEncryptedKey: user.recoveryEncryptedKey
         ? JSON.parse(user.recoveryEncryptedKey)
         : null,
+      recoveryEncryptedKeyV2: user.recoveryEncryptedKeyV2
+        ? JSON.parse(user.recoveryEncryptedKeyV2)
+        : null,
     },
   });
 }

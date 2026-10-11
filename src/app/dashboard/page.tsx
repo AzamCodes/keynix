@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useVault, DecryptedVaultItem } from "@/context/VaultContext";
 import { Navbar } from "@/components/Navbar";
 import { Sidebar } from "@/components/Sidebar";
@@ -45,6 +45,18 @@ export default function DashboardPage() {
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const clearSensitiveUi = () => {
+      setSelectedItem(null);
+      setIsItemModalOpen(false);
+      setIsGeneratorOpen(false);
+      setIsSettingsOpen(false);
+      setIsMobileMenuOpen(false);
+    };
+    window.addEventListener("keynix:lock", clearSensitiveUi);
+    return () => window.removeEventListener("keynix:lock", clearSensitiveUi);
+  }, []);
 
   const handleOpenNewItem = (category = "password") => {
     setSelectedItem(null);
@@ -293,24 +305,24 @@ export default function DashboardPage() {
       {isLocked && <LockScreen />}
 
       {/* Item Modal */}
-      <ItemModal
+      {!isLocked && <ItemModal
         isOpen={isItemModalOpen}
         item={selectedItem}
         defaultCategory={modalDefaultCategory}
         onClose={() => setIsItemModalOpen(false)}
-      />
+      />}
 
       {/* Password Generator Modal */}
-      <PasswordGeneratorModal
+      {!isLocked && <PasswordGeneratorModal
         isOpen={isGeneratorOpen}
         onClose={() => setIsGeneratorOpen(false)}
-      />
+      />}
 
       {/* Settings Modal */}
-      <SettingsModal
+      {!isLocked && <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-      />
+      />}
 
       {/* Toast Alert */}
       <Toast message={activeToast} />

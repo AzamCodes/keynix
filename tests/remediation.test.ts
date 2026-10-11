@@ -7,11 +7,17 @@ import {
   generateVaultKey,
   encryptVaultKey,
   decryptVaultKey,
+  encryptVaultPayload,
+  decryptVaultPayload,
   wipeBytes,
   encryptVaultBackup,
   decryptVaultBackup,
 } from "../src/lib/crypto";
 import { checkRateLimit } from "../src/lib/rate-limit";
+
+vi.mock("../src/lib/db", () => ({
+  db: { $queryRaw: vi.fn().mockRejectedValue(new Error("Database offline in unit tests")) },
+}));
 
 
 describe("KEYNIX REMEDIATION AUDIT TEST SUITE", () => {
@@ -226,6 +232,38 @@ describe("KEYNIX REMEDIATION AUDIT TEST SUITE", () => {
       await expect(
         decryptVaultKey(encVaultKey, masterEncKeyWrong)
       ).rejects.toThrow();
+    });
+  });
+
+  describe("Vault item AAD version compatibility", () => {
+    it("authenticates version 2 item identity metadata", async () => {
+      const key = generateVaultKey();
+      const identity = { itemId: "synthetic-item-id", userId: "synthetic-user-id", version: 2 };
+      const encrypted = await encryptVaultPayload(
+        { title: "Synthetic", password: "synthetic-password" },
+        key,
+        identity
+      );
+
+      await expect(decryptVaultPayload(encrypted, key, identity)).resolves.toMatchObject({
+        title: "Synthetic",
+        password: "synthetic-password",
+      });
+      await expect(
+        decryptVaultPayload(encrypted, key, { ...identity, itemId: "another-item-id" })
+      ).rejects.toThrow(/AAD mismatch/);
+    });
+
+    it("continues reading version 1 ciphertext without rewriting stored data", async () => {
+      const key = generateVaultKey();
+      const legacy = await encryptVaultPayload(
+        { title: "Legacy synthetic item" },
+        key,
+        { itemId: "temporary-client-id", userId: "synthetic-user-id", version: 1 }
+      );
+      await expect(decryptVaultPayload(legacy, key)).resolves.toMatchObject({
+        title: "Legacy synthetic item",
+      });
     });
   });
 

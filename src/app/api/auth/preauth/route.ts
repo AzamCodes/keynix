@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import crypto from "crypto";
 import { db } from "@/lib/db";
-import { SERVER_SECRET } from "@/lib/server-auth";
+import { generatePreauthDummySalt, getServerSecret } from "@/lib/server-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { hasSameRequestOrigin } from "@/lib/request-origin";
+import { readLimitedJson } from "@/lib/read-limited-json";
 
 const PreauthSchema = z.object({
   email: z.string().email(),
@@ -17,7 +18,14 @@ export const KdfParamsSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  if (!hasSameRequestOrigin(req)) {
+    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  }
   try {
+    // Check before looking up an account so missing configuration cannot
+    // produce different responses for known and unknown emails.
+    getServerSecret();
+
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "127.0.0.1";
     const rateLimit = await checkRateLimit(clientIp, "preauth", 10, 60 * 1000);
 
@@ -31,9 +39,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json();
+    const body = await readLimitedJson(req, 8 * 1024);
+    if (!body.ok) return NextResponse.json({ error: body.error }, { status: body.status });
 
-    const parseResult = PreauthSchema.safeParse(body);
+    const parseResult = PreauthSchema.safeParse(body.value);
 
     if (!parseResult.success) {
       return NextResponse.json(
@@ -68,13 +77,7 @@ export async function POST(req: Request) {
     }
 
     // Deterministic dummy salt generation for non-existent users to mitigate account enumeration timing attacks
-    const dummySaltBuffer = crypto
-      .createHmac("sha256", SERVER_SECRET)
-      .update(`preauth_salt:${normalizedEmail}`)
-      .digest()
-      .subarray(0, 16);
-
-    const dummySalt = dummySaltBuffer.toString("base64");
+    const dummySalt = generatePreauthDummySalt(normalizedEmail);
 
     return NextResponse.json({
       masterSalt: dummySalt,

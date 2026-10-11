@@ -20,10 +20,9 @@ export const LockScreen: React.FC = () => {
     const res = await unlockVault(masterPassword);
     setIsSubmitting(false);
 
+    setMasterPassword("");
     if (!res.success) {
       setError(res.error || "Incorrect Master Password");
-    } else {
-      setMasterPassword("");
     }
   };
 

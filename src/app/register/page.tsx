@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useVault } from "@/context/VaultContext";
@@ -19,6 +19,16 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const [generatedRecoveryPhrase, setGeneratedRecoveryPhrase] = useState<string | null>(null);
+
+  useEffect(() => {
+    const clearSensitiveForm = () => {
+      setMasterPassword("");
+      setConfirmPassword("");
+      setGeneratedRecoveryPhrase(null);
+    };
+    window.addEventListener("keynix:lock", clearSensitiveForm);
+    return () => window.removeEventListener("keynix:lock", clearSensitiveForm);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +49,8 @@ export default function RegisterPage() {
     setIsLoading(false);
 
     if (res.success && res.recoveryPhrase) {
+      setMasterPassword("");
+      setConfirmPassword("");
       setGeneratedRecoveryPhrase(res.recoveryPhrase);
     } else if (!res.success) {
       setError(res.error || "Failed to create account");

@@ -1,25 +1,14 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { getCurrentSession, destroySession } from "@/lib/session";
+import { hasSameRequestOrigin } from "@/lib/request-origin";
 
-export async function POST() {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function POST(request: Request) {
+  if (!hasSameRequestOrigin(request)) {
+    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   }
-
-  try {
-    const userId = session.userId;
-    await destroySession();
-
-    // Cascading deletion in DB scrubs user, vaultItems, and sessions
-    await db.user.delete({
-      where: { id: userId },
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error: unknown) {
-    console.error("Delete Account Error:", error);
-    return NextResponse.json({ error: "Failed to delete account" }, { status: 500 });
-  }
+  // Account deletion is destructive and cannot use a session as fresh proof.
+  // Keep it closed until reviewed, operation-bound PAKE step-up is available.
+  return NextResponse.json(
+    { error: "Account deletion requires fresh credential authorization, which is not available yet." },
+    { status: 501 }
+  );
 }
